@@ -186,6 +186,8 @@ dependencies = [
 name = "runescape"
 version = "0.1.0"
 dependencies = [
+ "itertools 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "num-traits 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "ordered-float 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "pathfinding 1.1.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",

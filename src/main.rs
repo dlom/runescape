@@ -1,26 +1,33 @@
 mod runescape;
+use runescape::gear::item_group::ItemGroup;
+use runescape::gear::item_group::group_similar_items;
+use runescape::gear::GearKind;
+use runescape::osrsbox_db::types::AttackStyle::Aggressive;
 use runescape::graph::level::*;
 use runescape::osrsbox_db;
 use pathfinding::prelude::dijkstra;
 
+#[macro_use]
+extern crate itertools;
+
 fn main() -> std::io::Result<()> {
-	let weapons = osrsbox_db::request(osrsbox_db::types::Slot::Weapon)?;
+	// let weapons = osrsbox_db::request(osrsbox_db::types::Slot::Weapon)?;
 
-	let scimitars = vec![
-		&weapons[&1323], // iron
-		&weapons[&1325], // steel
-		&weapons[&1327], // black
-		&weapons[&1329], // mith
-		&weapons[&1331], // addy
-		&weapons[&1333], // rune
-		&weapons[&4587], // dragon
-		&weapons[&13265], // abyssal dagger
-	];
+	// let scimitars = vec![
+	// 	&weapons[&1323], // iron
+	// 	&weapons[&1325], // steel
+	// 	&weapons[&1327], // black
+	// 	&weapons[&1329], // mith
+	// 	&weapons[&1331], // addy
+	// 	&weapons[&1333], // rune
+	// 	&weapons[&4587], // dragon
+	// 	&weapons[&13265], // abyssal dagger
+	// ];
 
-	let start = AttStrPair::new(1, 1);
-	let goal = AttStrPair::new(99, 99);
+	let start = Melee::new(1, 1, 1);
+	let goal = Melee::new(99, 99, 1);
 
-	let result = dijkstra(&start, |p| p.successors(&scimitars), |p| *p == goal);
+	let result = dijkstra(&start, |p| p.successors(&Vec::new()), |p| *p == goal);
 
 	// horrifically ugly
 	if let Some((v, h)) = result {
@@ -60,3 +67,7 @@ fn main() -> std::io::Result<()> {
 
 	Ok(())
 }
+
+// fn main() -> std::io::Result<()> {
+
+// }
