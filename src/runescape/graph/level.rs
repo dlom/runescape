@@ -49,7 +49,7 @@ impl Melee {
 	fn effective_strength(&self, style: AttackStyle) -> RunescapeInt {
 		use AttackStyle::*;
 
-		let strength_level    = self.strength.value as f64;
+		let strength_level    = self.strength.value.min(99) as f64;
 		let potion_effect     = 0.0;
 		let prayer_multiplyer = 1.0;
 		let style_bonus = match style {
@@ -64,7 +64,7 @@ impl Melee {
 	fn effective_attack(&self, style: AttackStyle) -> RunescapeInt {
 		use AttackStyle::*;
 
-		let attack_level      = self.attack.value as f64;
+		let attack_level      = self.attack.value.min(99) as f64;
 		let potion_effect     = 0.0;
 		let prayer_multiplyer = 1.0;
 		let style_bonus = match style {
