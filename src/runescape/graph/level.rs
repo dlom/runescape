@@ -1,9 +1,12 @@
+use crate::runescape::gear::GearCache;
+use crate::runescape::gear::breakpoints::Breakpoint;
 use crate::runescape::gear::item_group::find_weapon;
 use crate::runescape::gear::item_group::sum_stats;
 use crate::runescape::gear::item_group::ItemGroup;
 use crate::runescape::RunescapeInt;
 use crate::runescape::osrsbox_db::types::*;
 use std::hash::{Hash, Hasher};
+use std::fmt::{Display, Formatter};
 use ordered_float::NotNan;
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
@@ -31,18 +34,26 @@ enum Direction {
 }
 
 #[derive(Debug, Clone)]
-pub struct Melee {
+pub struct Melee<'a> {
 	attack: Level,
 	strength: Level,
 	defence: Level,
+	gear_that_got_us_here: Option<&'a Vec<&'a ItemGroup<'a>>>,
+	last_breakpoint: Option<Breakpoint>,
 }
 
-impl Melee {
+impl<'a> Melee<'a> {
 	pub fn new(attack: RunescapeInt, strength: RunescapeInt, defence: RunescapeInt) -> Self {
+		Self::new_detailed(attack, strength, defence, None, None)
+	}
+
+	fn new_detailed(attack: RunescapeInt, strength: RunescapeInt, defence: RunescapeInt, gear: Option<&'a Vec<&'a ItemGroup<'a>>>, last_breakpoint: Option<Breakpoint>) -> Self {
 		Melee {
 			attack: Level { value: attack },
 			strength: Level { value: strength },
 			defence: Level { value: defence },
+			gear_that_got_us_here: gear,
+			last_breakpoint: last_breakpoint,
 		}
 	}
 
@@ -125,33 +136,54 @@ impl Melee {
 		(xp as f64) / self.xp_per_hour(style, items)
 	}
 
-	pub fn successors(&self, items: &Vec<&ItemGroup>) -> Vec<(Self, NotNan<f64>)> {
+	pub fn successors(&self, gear_cache: &GearCache) -> Vec<(Self, NotNan<f64>)> {
+		// let gear = self.gear.unwrap_or_else(|| {
+		// 	unimplemented!()
+		// });
+		// let last_breakpoint = unimplemented!();
+		// calculate gear_to_get_there
+		// if gear_to_get_us_there, pass it as gear_that_got_us_here
 		let attack = self.attack.value;
 		let strength = self.strength.value;
 		let defence = self.defence.value;
 		vec![
-			(Self::new(attack + 1, strength + 0, defence + 0), NotNan::new(self.hours_to_level(Direction::Attack,   items)).unwrap()),
-			(Self::new(attack + 0, strength + 1, defence + 0), NotNan::new(self.hours_to_level(Direction::Strength, items)).unwrap()),
-			(Self::new(attack + 0, strength + 0, defence + 1), NotNan::new(self.hours_to_level(Direction::Defence,  items)).unwrap()),
+			(Self::new_detailed(attack + 1, strength + 0, defence + 0, None, None), NotNan::new(self.hours_to_level(Direction::Attack,   self.gear_that_got_us_here.unwrap())).unwrap()),
+			(Self::new_detailed(attack + 0, strength + 1, defence + 0, None, None), NotNan::new(self.hours_to_level(Direction::Strength, self.gear_that_got_us_here.unwrap())).unwrap()),
+			(Self::new_detailed(attack + 0, strength + 0, defence + 1, None, None), NotNan::new(self.hours_to_level(Direction::Defence,  self.gear_that_got_us_here.unwrap())).unwrap()),
 		]
 	}
-
-	pub fn difference(&self, other: &Self) -> (RunescapeInt, RunescapeInt) {
-		(other.attack.value - self.attack.value, other.strength.value - self.strength.value)
-	}
 }
 
-impl PartialEq for Melee {
+impl PartialEq for Melee<'_> {
 	fn eq(&self, other: &Self) -> bool {
-		self.attack == other.attack && self.strength == other.strength
+		self.attack == other.attack &&
+		self.strength == other.strength &&
+		self.defence == other.defence
 	}
 }
 
-impl Hash for Melee {
+impl Hash for Melee<'_> {
 	fn hash<H: Hasher>(&self, state: &mut H) {
         self.attack.hash(state);
         self.strength.hash(state);
+        self.defence.hash(state);
     }
 }
 
-impl Eq for Melee {}
+impl Eq for Melee<'_> {}
+
+impl Display for Melee<'_> {
+	fn fmt(&self, formatter: &mut Formatter) -> std::fmt::Result {
+		match self.gear_that_got_us_here {
+			Some(gear) => {
+				write!(formatter, "Level to ({}, {}, {}) wearing: [", self.attack.value, self.strength.value, self.defence.value)?;
+				for item in gear {
+					write!(formatter, "{}, ", item.group_name())?;
+				}
+				write!(formatter, "]")
+			},
+			None       => write!(formatter, "Start at ({}, {}, {})", self.attack.value, self.strength.value, self.defence.value),
+
+		}
+	}
+}

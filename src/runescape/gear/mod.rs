@@ -1,3 +1,4 @@
+use breakpoints::Breakpoint;
 use std::collections::BTreeMap;
 
 use crate::runescape::RunescapeInt;
@@ -8,12 +9,15 @@ use itertools::Itertools;
 
 
 #[macro_use]
-mod breakpoints;
+pub mod breakpoints;
 pub mod item_group;
 
 #[derive(Debug)]
 pub struct GearCache {
 	gear: BTreeMap<RunescapeInt, Item>,
+	attack_breakpoints: Vec<RunescapeInt>,
+	strength_breakpoints: Vec<RunescapeInt>,
+	defence_breakpoints: Vec<RunescapeInt>,
 }
 
 pub enum GearKind {
@@ -44,6 +48,9 @@ impl GearCache {
 		gear.append(&mut osrsbox_db::request(Slot::Weapon)?);
 
 		Ok(GearCache {
+			attack_breakpoints:   breakpoints!(&gear, attack),
+			strength_breakpoints: breakpoints!(&gear, strength),
+			defence_breakpoints:  breakpoints!(&gear, defence),
 			gear: normalize_gear(gear, predicate),
 		})
 	}
@@ -58,13 +65,11 @@ impl GearCache {
 		v
 	}
 
-	pub fn get_breakpoints(&self) -> (Vec<RunescapeInt>, Vec<RunescapeInt>, Vec<RunescapeInt>) {
-		let attack_breakpoints   = breakpoints!(&self.gear, attack);
-		let strength_breakpoints = breakpoints!(&self.gear, strength);
-		let defence_breakpoints  = breakpoints!(&self.gear, defence);
-
-		(attack_breakpoints, strength_breakpoints, defence_breakpoints)
+	pub fn get_breakpoint(&self, attack: RunescapeInt, strength: RunescapeInt, defence: RunescapeInt) -> Breakpoint {
+		// let attack_breakpoint = self.attack_breakpoint.filter
+		unimplemented!()
 	}
+
 }
 
 fn normalize_gear<T: IntoIterator<Item=(RunescapeInt, Item)>, P: FnMut(&(RunescapeInt, Item)) -> bool>(iter: T, predicate: P) -> BTreeMap<RunescapeInt, Item> {

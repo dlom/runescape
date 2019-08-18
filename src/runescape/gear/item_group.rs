@@ -5,7 +5,7 @@ use crate::runescape::osrsbox_db::types::*;
 
 use itertools::Itertools;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ItemGroup<'a> {
 	pub equipment: Equipment,
 	pub items: Vec<&'a Item>
@@ -53,11 +53,11 @@ pub fn group_similar_items<'a, T: IntoIterator<Item=&'a Item>>(iter: T) -> Vec<I
 }
 
 impl ItemGroup<'_> {
-	pub fn len(&self) -> usize {
-		self.items.len()
-	}
-
 	pub fn group_name(&self) -> String {
+		if self.items.len() == 0 {
+			return "Nothing".into();
+		}
+
 		let lowest_id_item = self.items.iter().fold(None, |o, item| {
 			match o {
 				None => Some(item),
