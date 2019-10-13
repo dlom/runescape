@@ -29,7 +29,7 @@ pub struct Equipment {
 	pub requirements:    Option<Stats>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Copy, Clone, PartialOrd, Ord)]
 #[serde(rename_all = "lowercase")]
 pub enum Slot {
 	#[serde(rename = "2h")]
@@ -58,21 +58,33 @@ pub struct Stats {
 	pub magic:     Option<RunescapeInt>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+impl Stats {
+	pub fn has_requirements(&self, player_stats: &Self) -> bool {
+		player_stats.attack    >= self.attack &&
+		player_stats.strength  >= self.strength &&
+		player_stats.defence   >= self.defence &&
+		player_stats.hitpoints >= self.hitpoints &&
+		player_stats.prayer    >= self.prayer &&
+		player_stats.ranged    >= self.ranged &&
+		player_stats.magic     >= self.magic
+	}
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Weapon {
 	pub attack_speed: RunescapeInt,
 	pub weapon_type:  String,
 	pub stances:      Vec<Stance>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Stance {
 	pub combat_style: String,
 	pub attack_type:  Option<AttackType>,
 	pub attack_style: Option<AttackStyle>,
 }
 
-#[derive(Deserialize, Debug, PartialEq, Copy, Clone)]
+#[derive(Deserialize, Debug, PartialEq, Eq, Copy, Clone, PartialOrd, Ord)]
 #[serde(rename_all = "lowercase")]
 pub enum AttackType {
 	Crush,
@@ -83,7 +95,7 @@ pub enum AttackType {
 	Stab,
 }
 
-#[derive(Deserialize, Debug, PartialEq, Copy, Clone)]
+#[derive(Deserialize, Debug, PartialEq, Eq, Copy, Clone, PartialOrd, Ord)]
 #[serde(rename_all = "lowercase")]
 pub enum AttackStyle {
 	Accurate,

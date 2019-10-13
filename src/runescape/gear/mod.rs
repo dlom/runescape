@@ -1,3 +1,7 @@
+use std::rc::Rc;
+use std::cell::RefCell;
+
+use item_group::ItemGroup;
 use breakpoints::Breakpoint;
 use std::collections::BTreeMap;
 
@@ -12,25 +16,25 @@ use itertools::Itertools;
 pub mod breakpoints;
 pub mod item_group;
 
-#[derive(Debug)]
 pub struct GearCache {
 	gear: BTreeMap<RunescapeInt, Item>,
 	attack_breakpoints: Vec<RunescapeInt>,
 	strength_breakpoints: Vec<RunescapeInt>,
 	defence_breakpoints: Vec<RunescapeInt>,
+	breakpoint_cache: RefCell<BTreeMap<(Slot, Breakpoint), BTreeMap<(AttackType, Option<AttackStyle>), Rc<Vec<ItemGroup>>>>>,
 }
 
 pub enum GearKind {
 	Melee,
-	Ranged,
-	Magic,
+	// Ranged,
+	// Magic,
 }
 
 impl GearCache {
 	pub fn new(kind: GearKind) -> std::io::Result<Self> {
 		let predicate = match kind {
 			GearKind::Melee => is_melee_gear,
-			_               => unreachable!(),
+			// _               => unreachable!(),
 		};
 
 		let mut gear = BTreeMap::new();
@@ -47,18 +51,23 @@ impl GearCache {
 		gear.append(&mut osrsbox_db::request(Slot::Shield)?);
 		gear.append(&mut osrsbox_db::request(Slot::Weapon)?);
 
-		Ok(GearCache {
+		Ok(Self {
 			attack_breakpoints:   breakpoints!(&gear, attack),
 			strength_breakpoints: breakpoints!(&gear, strength),
 			defence_breakpoints:  breakpoints!(&gear, defence),
 			gear: normalize_gear(gear, predicate),
+			breakpoint_cache: RefCell::new(BTreeMap::new()),
 		})
 	}
 
-	pub fn get_slot_gear<'a>(&'a self, slot: Slot, id_blacklist: &Vec<RunescapeInt>) -> Vec<&'a Item> {
+	pub fn get_by_id(&self, id: RunescapeInt) -> Option<&Item> {
+		self.gear.get(&id)
+	}
+
+	fn get_by_slot(&self, slot: Slot) -> Vec<&Item> {
 		let mut v = Vec::new();
 		for (_, item) in &self.gear {
-			if item.equipment.slot == slot && !id_blacklist.contains(&item.id) {
+			if item.equipment.slot == slot {
 				v.push(item)
 			}
 		}
@@ -66,10 +75,41 @@ impl GearCache {
 	}
 
 	pub fn get_breakpoint(&self, attack: RunescapeInt, strength: RunescapeInt, defence: RunescapeInt) -> Breakpoint {
-		// let attack_breakpoint = self.attack_breakpoint.filter
-		unimplemented!()
+		let attack = check_breakpoint(&self.attack_breakpoints, attack);
+		let strength = check_breakpoint(&self.strength_breakpoints, strength);
+		let defence = check_breakpoint(&self.defence_breakpoints, defence);
+		(attack, strength, defence)
 	}
 
+	pub fn get_by_slot_full(&self, slot: Slot, breakpoint: Breakpoint, attack_type: AttackType, attack_style: AttackStyle) -> Rc<Vec<ItemGroup>> {
+		let attack_style = match slot {
+			Slot::Weapon => Some(attack_style),
+			_            => None,
+		};
+		Rc::clone(self.breakpoint_cache.borrow_mut().entry((slot, breakpoint)).or_insert_with(|| {
+			let slot_gear = self.get_by_slot(slot);
+			let filtered_gear = filter_by_breakpoint(slot_gear, breakpoint);
+			let groups = item_group::group_similar_items(filtered_gear);
+			let mut map = BTreeMap::new();
+			for group in groups {
+				map.entry((group.attack_type, group.attack_style)).or_insert(Vec::new()).push(group);
+			}
+			let mut rc_map = BTreeMap::new();
+			for (key, value) in map.into_iter() {
+				rc_map.insert(key, Rc::new(value));
+			}
+			rc_map
+		}).get(&(attack_type, attack_style)).unwrap_or(&Rc::new(vec![ItemGroup::empty_group(attack_type)])))
+	}
+}
+
+fn check_breakpoint(breakpoints: &Vec<RunescapeInt>, value: RunescapeInt) -> RunescapeInt {
+	for pair in breakpoints.windows(2) {
+		if value < pair[1] {
+			return pair[0];
+		}
+	}
+	*breakpoints.last().unwrap_or(&1)
 }
 
 fn normalize_gear<T: IntoIterator<Item=(RunescapeInt, Item)>, P: FnMut(&(RunescapeInt, Item)) -> bool>(iter: T, predicate: P) -> BTreeMap<RunescapeInt, Item> {
@@ -109,4 +149,24 @@ fn is_melee_gear((_, item): &(RunescapeInt, Item)) -> bool {
 		return true
 	}
 	false
+}
+
+fn filter_by_breakpoint<'a, T: IntoIterator<Item=&'a Item>>(iter: T, breakpoint: Breakpoint) -> Vec<&'a Item> {
+	let stats = breakpoint.into();
+	iter.into_iter()
+		.filter(|item| {
+			match &item.equipment.requirements {
+				Some(requirements) => {
+					requirements.has_requirements(&stats)
+				},
+				None => {
+					match &item.weapon {
+						Some(_) => false,
+						None => true,
+					}
+				}
+			}
+		})
+		.into_iter()
+		.collect()
 }

@@ -1,13 +1,13 @@
+use crate::runescape::gear::item_group::filter_elided_items;
 use crate::runescape::gear::GearCache;
-use crate::runescape::gear::breakpoints::Breakpoint;
-use crate::runescape::gear::item_group::find_weapon;
-use crate::runescape::gear::item_group::sum_stats;
+
 use crate::runescape::gear::item_group::ItemGroup;
 use crate::runescape::RunescapeInt;
 use crate::runescape::osrsbox_db::types::*;
 use std::hash::{Hash, Hasher};
-use std::fmt::{Display, Formatter};
 use ordered_float::NotNan;
+
+use itertools::Itertools;
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct Level {
@@ -27,33 +27,28 @@ impl Level {
 	}
 }
 
-enum Direction {
-	Attack,
-	Strength,
-	Defence,
-}
+// #[derive(Debug, Clone, Copy, PartialEq)]
+// enum Direction {
+// 	Attack,
+// 	Strength,
+// 	Defence,
+// }
 
 #[derive(Debug, Clone)]
-pub struct Melee<'a> {
+pub struct Melee {
 	attack: Level,
 	strength: Level,
 	defence: Level,
-	gear_that_got_us_here: Option<&'a Vec<&'a ItemGroup<'a>>>,
-	last_breakpoint: Option<Breakpoint>,
+	pub gear_that_got_us_here: Option<Vec<ItemGroup>>,
 }
 
-impl<'a> Melee<'a> {
-	pub fn new(attack: RunescapeInt, strength: RunescapeInt, defence: RunescapeInt) -> Self {
-		Self::new_detailed(attack, strength, defence, None, None)
-	}
-
-	fn new_detailed(attack: RunescapeInt, strength: RunescapeInt, defence: RunescapeInt, gear: Option<&'a Vec<&'a ItemGroup<'a>>>, last_breakpoint: Option<Breakpoint>) -> Self {
-		Melee {
+impl Melee {
+	pub fn new(attack: RunescapeInt, strength: RunescapeInt, defence: RunescapeInt, gear: Option<Vec<ItemGroup>>) -> Self {
+		Self {
 			attack: Level { value: attack },
 			strength: Level { value: strength },
 			defence: Level { value: defence },
 			gear_that_got_us_here: gear,
-			last_breakpoint: last_breakpoint,
 		}
 	}
 
@@ -117,44 +112,112 @@ impl<'a> Melee<'a> {
 		hit_chance * (max_hit / 2.0) / (attack_interval * GAME_TICK)
 	}
 
-	pub fn xp_per_hour(&self, style: AttackStyle, items: &Vec<&ItemGroup>) -> f64 {
-		let stats = sum_stats(items, style);
-		let attack_speed = find_weapon(items).expect("missing weapon").attack_speed;
+	pub fn xp_per_hour(&self, style: AttackStyle, items: &Vec<ItemGroup>) -> f64 {
+		let stats = sum_stats(items);
+		let attack_speed = find_weapon_speed(items).expect("missing weapon");
 
 		(self.dps(style, stats, attack_speed) * 4.0) * (60.0 * 60.0)
 	}
 
-	fn hours_to_level(&self, direction: Direction, items: &Vec<&ItemGroup>) -> f64 {
+	fn hours_to_level(&self, style: AttackStyle, items: &Vec<ItemGroup>) -> f64 {
 		use AttackStyle::*;
 
-		let (xp, style) = match direction {
-			Direction::Attack   => (self.attack.xp_to_next_level(),   Accurate),
-			Direction::Strength => (self.strength.xp_to_next_level(), Aggressive),
-			Direction::Defence  => (self.defence.xp_to_next_level(),  Defensive),
+		let xp = match style {
+			Accurate   => self.attack.xp_to_next_level(),
+			Aggressive => self.strength.xp_to_next_level(),
+			Defensive  => self.defence.xp_to_next_level(),
+			_          => unreachable!(),
 		};
 
 		(xp as f64) / self.xp_per_hour(style, items)
 	}
 
-	pub fn successors(&self, gear_cache: &GearCache) -> Vec<(Self, NotNan<f64>)> {
-		// let gear = self.gear.unwrap_or_else(|| {
-		// 	unimplemented!()
-		// });
-		// let last_breakpoint = unimplemented!();
-		// calculate gear_to_get_there
-		// if gear_to_get_us_there, pass it as gear_that_got_us_here
-		let attack = self.attack.value;
-		let strength = self.strength.value;
-		let defence = self.defence.value;
-		vec![
-			(Self::new_detailed(attack + 1, strength + 0, defence + 0, None, None), NotNan::new(self.hours_to_level(Direction::Attack,   self.gear_that_got_us_here.unwrap())).unwrap()),
-			(Self::new_detailed(attack + 0, strength + 1, defence + 0, None, None), NotNan::new(self.hours_to_level(Direction::Strength, self.gear_that_got_us_here.unwrap())).unwrap()),
-			(Self::new_detailed(attack + 0, strength + 0, defence + 1, None, None), NotNan::new(self.hours_to_level(Direction::Defence,  self.gear_that_got_us_here.unwrap())).unwrap()),
-		]
+	pub fn successors(&self, gear_cache: &GearCache, goal: &Self) -> Vec<(Self, NotNan<f64>)> {
+		let mut v = Vec::with_capacity(3);
+		if let Some(successor) = self.successor(AttackStyle::Accurate,   gear_cache, goal) { v.push(successor) }
+		if let Some(successor) = self.successor(AttackStyle::Aggressive, gear_cache, goal) { v.push(successor) }
+		if let Some(successor) = self.successor(AttackStyle::Defensive,  gear_cache, goal) { v.push(successor) }
+		v
+	}
+
+	fn successor(&self, style: AttackStyle, gear_cache: &GearCache, goal: &Self) -> Option<(Self, NotNan<f64>)> {
+		let mut attack = self.attack.value;
+		let mut strength = self.strength.value;
+		let mut defence = self.defence.value;
+
+		let breakpoint = gear_cache.get_breakpoint(attack, strength, defence);
+
+		match style {
+			AttackStyle::Accurate   => { attack   += 1; if attack   > 127 || attack   > goal.attack.value   { return None } },
+			AttackStyle::Aggressive => { strength += 1; if strength > 127 || strength > goal.strength.value { return None } },
+			AttackStyle::Defensive  => { defence  += 1; if defence  > 127 || defence  > goal.defence.value  { return None } },
+			_                       => unreachable!(),
+		};
+
+		let weapon = gear_cache.get_by_slot_full(Slot::Weapon, breakpoint, AttackType::Slash, style);
+		let ammo = gear_cache.get_by_slot_full(Slot::Ammo, breakpoint, AttackType::Slash, style);
+		let head = gear_cache.get_by_slot_full(Slot::Head, breakpoint, AttackType::Slash, style);
+		let cape = gear_cache.get_by_slot_full(Slot::Cape, breakpoint, AttackType::Slash, style);
+		let neck = gear_cache.get_by_slot_full(Slot::Neck, breakpoint, AttackType::Slash, style);
+		let body = gear_cache.get_by_slot_full(Slot::Body, breakpoint, AttackType::Slash, style);
+		let legs = gear_cache.get_by_slot_full(Slot::Legs, breakpoint, AttackType::Slash, style);
+		let shield = gear_cache.get_by_slot_full(Slot::Shield, breakpoint, AttackType::Slash, style);
+		let hands = gear_cache.get_by_slot_full(Slot::Hands, breakpoint, AttackType::Slash, style);
+		let feet = gear_cache.get_by_slot_full(Slot::Feet, breakpoint, AttackType::Slash, style);
+		let ring = gear_cache.get_by_slot_full(Slot::Ring, breakpoint, AttackType::Slash, style);
+
+		let all = vec![
+			filter_elided_items(&weapon),
+			filter_elided_items(&ammo),
+			filter_elided_items(&head),
+			filter_elided_items(&cape),
+			filter_elided_items(&neck),
+			filter_elided_items(&body),
+			filter_elided_items(&legs),
+			filter_elided_items(&shield),
+			filter_elided_items(&hands),
+			filter_elided_items(&feet),
+			filter_elided_items(&ring),
+		];
+
+		let mut max_hours = std::f64::INFINITY;
+		let mut gear = None;
+		for set in all.into_iter().multi_cartesian_product() {
+			let hours = self.hours_to_level(style, &set);
+			if hours < max_hours {
+				max_hours = hours;
+				gear.replace(set);
+			}
+		}
+
+		if let None = gear {
+			unreachable!("couldn't find gear");
+		}
+
+		Some((Self::new(attack, strength, defence, gear), NotNan::new(max_hours).unwrap()))
 	}
 }
 
-impl PartialEq for Melee<'_> {
+fn sum_stats(items: &Vec<ItemGroup>) -> (RunescapeInt, RunescapeInt) {
+	let mut attack_bonus = 0;
+	let mut strength_bonus = 0;
+	for item in items {
+		attack_bonus += item.attack_value;
+		strength_bonus += item.strength_value;
+	}
+	(attack_bonus, strength_bonus)
+}
+
+fn find_weapon_speed(items: &Vec<ItemGroup>) -> Option<RunescapeInt> {
+	for item in items {
+		if let Some(speed) = item.attack_speed {
+			return Some(speed);
+		}
+	}
+	None
+}
+
+impl PartialEq for Melee {
 	fn eq(&self, other: &Self) -> bool {
 		self.attack == other.attack &&
 		self.strength == other.strength &&
@@ -162,7 +225,7 @@ impl PartialEq for Melee<'_> {
 	}
 }
 
-impl Hash for Melee<'_> {
+impl Hash for Melee {
 	fn hash<H: Hasher>(&self, state: &mut H) {
         self.attack.hash(state);
         self.strength.hash(state);
@@ -170,20 +233,10 @@ impl Hash for Melee<'_> {
     }
 }
 
-impl Eq for Melee<'_> {}
-
-impl Display for Melee<'_> {
-	fn fmt(&self, formatter: &mut Formatter) -> std::fmt::Result {
-		match self.gear_that_got_us_here {
-			Some(gear) => {
-				write!(formatter, "Level to ({}, {}, {}) wearing: [", self.attack.value, self.strength.value, self.defence.value)?;
-				for item in gear {
-					write!(formatter, "{}, ", item.group_name())?;
-				}
-				write!(formatter, "]")
-			},
-			None       => write!(formatter, "Start at ({}, {}, {})", self.attack.value, self.strength.value, self.defence.value),
-
-		}
+impl std::fmt::Display for Melee {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "({}, {}, {})", self.attack.value, self.strength.value, self.defence.value)
 	}
 }
+
+impl Eq for Melee {}

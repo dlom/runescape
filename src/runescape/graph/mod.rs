@@ -1,3 +1,5 @@
+use crate::runescape::RunescapeInt;
+
 pub mod level;
 
 const XP_TABLE: [u64; 127] = [
@@ -129,3 +131,16 @@ const XP_TABLE: [u64; 127] = [
 	188_884_740,
 	200_000_000,
 ];
+
+pub fn level_to_xp(level: RunescapeInt) -> u64 {
+	XP_TABLE[(level - 1) as usize]
+}
+
+pub fn xp_to_level(xp: u64) -> RunescapeInt {
+	for (i, level_xp) in XP_TABLE.iter().rev().enumerate() {
+		if xp >= *level_xp {
+			return (XP_TABLE.len() - i) as RunescapeInt;
+		}
+	}
+	return XP_TABLE.len() as RunescapeInt;
+}
